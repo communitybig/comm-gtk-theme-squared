@@ -1,0 +1,34 @@
+# Maintainer: Leonardo Berbert <leo4berbert@gmail.com>
+# Contributor: Narayan Silva <narayan.song@gmail.com>
+
+pkgname=comm-gnome-theme-andromeda
+pkgdesc="andromeda GNOME theme"
+pkgver=$(date +%y.%m.%d)
+pkgrel=$(date +%H%M)
+arch=('any')
+url="https://github.com/communitybig/${pkgname}"
+license=('MIT')
+source=(
+    "Squared.tar.xz"
+)
+sha256sums=('SKIP')
+install="pkgbuild.install"
+
+# Automatically detect and use the correct install file
+if [ -e "${pkgname}.install" ]; then
+    install=${pkgname}.install
+elif [ -e "pkgbuild.install" ]; then
+    install=pkgbuild.install
+fi
+
+package() {
+    cd "$srcdir"
+
+    # Create destination directories
+    mkdir -p "${pkgdir}/usr/share/themes"
+
+    # Extract themes and icons
+
+    tar -I zstd -xf "Squared.tar.xz" -C "${pkgdir}/usr/share/themes"
+
+}

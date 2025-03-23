@@ -1,0 +1,403 @@
+# Installation file for Arch Linux packages - Squared Theme
+
+# Global variables
+THEME_NAME="Squared"
+THEMES_DIR="/usr/share/themes/$THEME_NAME"
+
+# Function to detect the desktop environment
+detect_environment() {
+    if [ -n "$XDG_CURRENT_DESKTOP" ]; then
+        DE="$XDG_CURRENT_DESKTOP"
+    elif [ -n "$DESKTOP_SESSION" ]; then
+        DE="$DESKTOP_SESSION"
+    else
+        DE="unknown"
+    fi
+    
+    echo "Ambiente detectado: $DE"
+    
+    # Set environment type based on detection
+    case "$DE" in
+        *GNOME*|*gnome*)
+            DE_TYPE="gnome"
+            ;;
+        *CINNAMON*|*cinnamon*)
+            DE_TYPE="cinnamon"
+            ;;
+        *XFCE*|*xfce*)
+            DE_TYPE="xfce"
+            ;;
+        *i3*)
+            DE_TYPE="i3"
+            ;;
+        *)
+            echo "Aviso: Desktop environment '$DE' não reconhecido explicitamente."
+            echo "Instalando configuração básica GTK."
+            DE_TYPE="basic"
+            ;;
+    esac
+    
+    return 0
+}
+
+# Function executed before package installation
+pre_install() {
+    echo "Preparando para instalar o tema Squared para interface GTK..."
+    
+    # Detect environment
+    detect_environment
+    
+    # Check for required commands
+    if [ "$DE_TYPE" = "gnome" ] || [ "$DE_TYPE" = "cinnamon" ]; then
+        if ! command -v gsettings >/dev/null 2>&1; then
+            echo "Erro: comando gsettings não encontrado. Por favor, instale o pacote relacionado."
+            exit 1
+        fi
+    fi
+    
+    if [ "$DE_TYPE" = "xfce" ]; then
+        if ! command -v xfconf-query >/dev/null 2>&1; then
+            echo "Aviso: comando xfconf-query não encontrado. A configuração automática do XFCE pode falhar."
+        fi
+    fi
+}
+
+# Function to backup desktop environment settings
+backup_settings() {
+    local user="$1"
+    local user_home="$2"
+    local backup_file="$user_home/.config/${THEME_NAME}-settings-backup.txt"
+    local timestamp=$(date +%Y%m%d%H%M%S)
+    
+    echo "Criando backup das configurações atuais em $backup_file..."
+    
+    # Create backup directory if it doesn't exist
+    mkdir -p "$user_home/backup_customizations"
+    
+    # Backup settings based on desktop environment
+    case "$DE_TYPE" in
+        gnome)
+            su - "$user" -c "
+                export DISPLAY=:0;
+                export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u "$user")/bus;
+                {
+                    echo org.gnome.shell.extensions.user-theme name \$(gsettings get org.gnome.shell.extensions.user-theme name);
+                    echo org.gnome.desktop.interface gtk-theme \$(gsettings get org.gnome.desktop.interface gtk-theme);
+                    echo org.gnome.desktop.wm.preferences theme \$(gsettings get org.gnome.desktop.wm.preferences theme);
+                } > \"$backup_file\"
+            "
+            ;;
+        cinnamon)
+            su - "$user" -c "
+                export DISPLAY=:0;
+                export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u "$user")/bus;
+                {
+                    echo org.cinnamon.theme name \$(gsettings get org.cinnamon.theme name);
+                    echo org.cinnamon.desktop.interface gtk-theme \$(gsettings get org.cinnamon.desktop.interface gtk-theme);
+                    echo org.cinnamon.desktop.wm.preferences theme \$(gsettings get org.cinnamon.desktop.wm.preferences theme);
+                } > \"$backup_file\"
+            "
+            ;;
+        xfce)
+            if command -v xfconf-query >/dev/null 2>&1; then
+                su - "$user" -c "
+                    export DISPLAY=:0;
+                    {
+                        echo xfce_gtk_theme \$(xfconf-query -c xsettings -p /Net/ThemeName);
+                        echo xfce_wm_theme \$(xfconf-query -c xfwm4 -p /general/theme);
+                    } > \"$backup_file\"
+                "
+            else
+                echo "Aviso: xfconf-query não disponível, o backup das configurações do XFCE não foi realizado."
+            fi
+            ;;
+        i3)
+            # i3 typically uses GTK settings from other files
+            echo "Realizando backup de configurações básicas do GTK para i3..."
+            ;;
+        basic)
+            echo "Realizando backup de configurações básicas do GTK..."
+            ;;
+    esac
+    
+    # Backup GTK configuration files
+    GTK4_DIR="$user_home/.config/gtk-4.0"
+    GTK3_DIR="$user_home/.config/gtk-3.0"
+    GTK2_FILE="$user_home/.gtkrc-2.0"
+    
+    for dir in "$GTK4_DIR" "$GTK3_DIR"; do
+        if [ -d "$dir" ]; then
+            tar -czf "$user_home/backup_customizations/$(basename "$dir")-$timestamp.tar.gz" -C "$(dirname "$dir")" "$(basename "$dir")"
+            echo "Backup criado: $(basename "$dir")-$timestamp.tar.gz"
+        fi
+    done
+    
+    if [ -f "$GTK2_FILE" ]; then
+        cp "$GTK2_FILE" "$user_home/backup_customizations/gtkrc-2.0-$timestamp.bak"
+        echo "Backup criado: gtkrc-2.0-$timestamp.bak"
+    fi
+    
+    # Set ownership for backup files
+    chown -R "$user:$user" "$user_home/backup_customizations"
+    
+    return 0
+}
+
+# Function to apply theme settings
+apply_theme_settings() {
+    local user="$1"
+    local user_home="$2"
+    
+    echo "Aplicando configurações do tema Squared para $user..."
+    
+    case "$DE_TYPE" in
+        gnome)
+            su - "$user" -c "
+                export DISPLAY=:0;
+                export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u "$user")/bus;
+                gsettings set org.gnome.shell.extensions.user-theme name '$THEME_NAME';
+                gsettings set org.gnome.desktop.interface gtk-theme '$THEME_NAME';
+                gsettings set org.gnome.desktop.wm.preferences theme '$THEME_NAME';
+            "
+            ;;
+        cinnamon)
+            su - "$user" -c "
+                export DISPLAY=:0;
+                export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u "$user")/bus;
+                gsettings set org.cinnamon.theme name '$THEME_NAME';
+                gsettings set org.cinnamon.desktop.interface gtk-theme '$THEME_NAME';
+                gsettings set org.cinnamon.desktop.wm.preferences theme '$THEME_NAME';
+            "
+            ;;
+        xfce)
+            if command -v xfconf-query >/dev/null 2>&1; then
+                su - "$user" -c "
+                    export DISPLAY=:0;
+                    xfconf-query -c xsettings -p /Net/ThemeName -s '$THEME_NAME';
+                    xfconf-query -c xfwm4 -p /general/theme -s '$THEME_NAME';
+                "
+            else
+                echo "Aviso: xfconf-query não disponível, aplicação automática de tema no XFCE não realizada."
+            fi
+            ;;
+        i3|basic)
+            echo "Aplicando configurações básicas de GTK para $DE_TYPE..."
+            # For i3 and basic, we rely on GTK config files only
+            ;;
+    esac
+    
+    return 0
+}
+
+# Function executed after package installation
+post_install() {
+    echo "Aplicando tema Squared para GTK e configurando o ambiente..."
+
+    # Detect environment
+    detect_environment
+    
+    # Get user information
+    user=$(logname)
+    user_home=$(getent passwd "$user" | cut -d: -f6)
+
+    if [ -z "$user_home" ]; then
+        echo "Não foi possível determinar o diretório home para o usuário $user. Pulando aplicação do tema."
+        return 1
+    fi
+
+    # Backup current settings
+    backup_settings "$user" "$user_home"
+
+    # Directories
+    GTK4_DIR="$user_home/.config/gtk-4.0"
+    GTK3_DIR="$user_home/.config/gtk-3.0"
+    GTK2_FILE="$user_home/.gtkrc-2.0"
+
+    # Create directories if they don't exist
+    for dir in "$GTK4_DIR" "$GTK3_DIR"; do
+        if [ ! -d "$dir" ]; then
+            mkdir -p "$dir"
+            chown "$user:$user" "$dir"
+        fi
+    done
+    
+    # Copy theme files
+    echo "Copiando arquivos do tema Squared..."
+    cp -rp "$THEMES_DIR/gtk-4.0/"* "$GTK4_DIR/" 2>/dev/null || echo "Aviso: Arquivos GTK4 não encontrados no tema."
+    cp -rp "$THEMES_DIR/gtk-3.0/"* "$GTK3_DIR/" 2>/dev/null || echo "Aviso: Arquivos GTK3 não encontrados no tema."
+    
+    # Setup GTK2 if available
+    if [ -f "$THEMES_DIR/gtk-2.0/gtkrc" ]; then
+        echo "include \"$THEMES_DIR/gtk-2.0/gtkrc\"" > "$GTK2_FILE"
+        echo "gtk-theme-name=\"$THEME_NAME\"" >> "$GTK2_FILE"
+        chown "$user:$user" "$GTK2_FILE"
+    fi
+
+    # Set correct ownership
+    chown -R "$user:$user" "$GTK4_DIR"
+    chown -R "$user:$user" "$GTK3_DIR"
+
+    # Apply theme settings based on desktop environment
+    apply_theme_settings "$user" "$user_home"
+    
+    # Create symbolic link in user's .config directory pointing to assets
+    if [ -d "$THEMES_DIR/assets" ]; then
+        echo "Criando link simbólico para assets em $user_home/.config..."
+        ln -sf "$THEMES_DIR/assets" "$user_home/.config/assets"
+        chown -h "$user:$user" "$user_home/.config/assets"
+    fi
+
+    echo "Tema Squared aplicado com sucesso!"
+    return 0
+}
+
+# Function executed before package removal
+pre_remove() {
+    echo "Preparando para remover o tema Squared..."
+    
+    # Detect environment
+    detect_environment
+}
+
+# Function to restore desktop environment settings
+restore_settings() {
+    local user="$1"
+    local user_home="$2"
+    local backup_file="$user_home/.config/${THEME_NAME}-settings-backup.txt"
+    
+    if [ ! -f "$backup_file" ]; then
+        echo "Arquivo de backup de configurações não encontrado: $backup_file"
+        return 1
+    fi
+    
+    echo "Restaurando configurações de $backup_file..."
+    
+    case "$DE_TYPE" in
+        gnome|cinnamon)
+            while IFS= read -r line; do
+                schema=$(echo "$line" | awk '{print $1}')
+                key=$(echo "$line" | awk '{print $2}')
+                value=$(echo "$line" | cut -d' ' -f3-)
+
+                su - "$user" -c "
+                    export DISPLAY=:0;
+                    export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u "$user")/bus;
+                    gsettings set $schema $key $value
+                "
+            done < "$backup_file"
+            ;;
+        xfce)
+            if command -v xfconf-query >/dev/null 2>&1; then
+                # Extract and set xfce theme settings
+                gtk_theme=$(grep xfce_gtk_theme "$backup_file" | cut -d' ' -f2-)
+                wm_theme=$(grep xfce_wm_theme "$backup_file" | cut -d' ' -f2-)
+                
+                su - "$user" -c "
+                    export DISPLAY=:0;
+                    xfconf-query -c xsettings -p /Net/ThemeName -s \"$gtk_theme\";
+                    xfconf-query -c xfwm4 -p /general/theme -s \"$wm_theme\";
+                "
+            fi
+            ;;
+        i3|basic)
+            echo "Restaurando configurações básicas do GTK..."
+            # For i3 and basic, we rely on GTK config file restoration
+            ;;
+    esac
+    
+    rm -f "$backup_file"
+    return 0
+}
+
+# Function executed after package removal
+post_remove() {
+    echo "Restaurando configurações padrão e removendo arquivos do tema Squared..."
+
+    # Get user information
+    user=$(logname)
+    user_home=$(getent passwd "$user" | cut -d: -f6)
+    backup_dir="$user_home/backup_customizations"
+    
+    # Verify if user's home directory exists
+    if [ -z "$user_home" ]; then
+        echo "Não foi possível determinar o diretório home para o usuário $user. Pulando restauração."
+        return 1
+    fi
+
+    # Restore settings
+    restore_settings "$user" "$user_home"
+
+    # GTK directories and files
+    GTK4_DIR="$user_home/.config/gtk-4.0"
+    GTK3_DIR="$user_home/.config/gtk-3.0"
+    GTK2_FILE="$user_home/.gtkrc-2.0"
+    
+    # Remove current GTK directories
+    echo "Removendo diretórios GTK atuais..."
+    for dir in "$GTK4_DIR" "$GTK3_DIR"; do
+        if [ -d "$dir" ]; then
+            rm -rf "$dir"
+            echo "Removido: $dir"
+        fi
+    done
+    
+    # Remove or restore GTK2 file
+    if [ -f "$GTK2_FILE" ]; then
+        # Check if it's our theme
+        if grep -q "$THEME_NAME" "$GTK2_FILE"; then
+            rm -f "$GTK2_FILE"
+            echo "Removido: $GTK2_FILE"
+        fi
+    fi
+
+    # Restore backups
+    echo "Restaurando diretórios GTK a partir de backups..."
+    if [ -d "$backup_dir" ]; then
+        # Find the latest GTK4 backup
+        latest_gtk4=$(ls -t "$backup_dir"/gtk-4.0-*.tar.gz 2>/dev/null | head -1)
+        if [ -n "$latest_gtk4" ]; then
+            echo "Restaurando $latest_gtk4..."
+            tar -xzf "$latest_gtk4" -C "$user_home/.config/"
+            chown -R "$user:$user" "$GTK4_DIR"
+        fi
+        
+        # Find the latest GTK3 backup
+        latest_gtk3=$(ls -t "$backup_dir"/gtk-3.0-*.tar.gz 2>/dev/null | head -1)
+        if [ -n "$latest_gtk3" ]; then
+            echo "Restaurando $latest_gtk3..."
+            tar -xzf "$latest_gtk3" -C "$user_home/.config/"
+            chown -R "$user:$user" "$GTK3_DIR"
+        fi
+        
+        # Find the latest GTK2 backup
+        latest_gtk2=$(ls -t "$backup_dir"/gtkrc-2.0-*.bak 2>/dev/null | head -1)
+        if [ -n "$latest_gtk2" ]; then
+            echo "Restaurando $latest_gtk2..."
+            cp "$latest_gtk2" "$GTK2_FILE"
+            chown "$user:$user" "$GTK2_FILE"
+        fi
+    else
+        echo "Diretório de backup $backup_dir não encontrado. Pulando restauração."
+    fi
+
+    # Remove theme directory
+    if [ -d "$THEMES_DIR" ]; then
+        echo "Removendo diretório do tema: $THEMES_DIR"
+        rm -rf "$THEMES_DIR"
+    fi
+    
+    # Remove symbolic link assets
+    if [ -L "$user_home/.config/assets" ]; then
+        echo "Removendo link simbólico: $user_home/.config/assets"
+        rm "$user_home/.config/assets"
+    fi
+    
+    # Remove backup files
+    if [ -d "$backup_dir" ]; then
+        echo "Removendo diretório de backup: $backup_dir"
+        rm -rf "$backup_dir"
+    fi
+
+    echo "Configurações padrão restauradas e todos os arquivos do tema Squared foram removidos."
+    return 0
+}
