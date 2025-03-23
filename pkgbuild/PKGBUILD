@@ -1,7 +1,7 @@
 # Maintainer: Narayan Silva <narayan.song@gmail.com>
 # Contributor: Leonardo Berbert <leo4berbert@gmail.com>
 
-pkgname=i3-gtk-theme-squared
+pkgname=comm-gtk-theme-squared
 pkgdesc="Squared GTK Theme for i3wm"
 pkgver=$(date +%y.%m.%d)
 pkgrel=$(date +%H%M)
