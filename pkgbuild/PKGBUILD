@@ -1,13 +1,16 @@
 # Maintainer: Narayan Silva <narayan.song@gmail.com>
 # Contributor: Leonardo Berbert <leo4berbert@gmail.com>
 
-pkgname=comm-gtk-theme-squared
+pkgname=comm-i3-theme-squared
 pkgdesc="Squared GTK Theme for i3wm"
 pkgver=$(date +%y.%m.%d)
 pkgrel=$(date +%H%M)
 arch=('any')
 url="https://github.com/communitybig/${pkgname}"
 license=('MIT')
+provides=('comm-gtk-theme-squared')
+conflicts=('comm-gtk-theme-squared')
+replaces=('comm-gtk-theme-squared')
 source=(
     "Squared.tar.xz"
 )
