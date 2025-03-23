@@ -40,6 +40,128 @@ detect_environment() {
     return 0
 }
 
+# Function to backup wallpaper settings
+backup_wallpaper() {
+    local user="$1"
+    local user_home="$2"
+    local wallpaper_backup="$user_home/.config/${THEME_NAME}-wallpaper-backup.txt"
+    
+    echo "Salvando configuração atual do wallpaper..."
+    
+    case "$DE_TYPE" in
+        gnome)
+            su - "$user" -c "
+                export DISPLAY=:0;
+                export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u "$user")/bus;
+                gsettings get org.gnome.desktop.background picture-uri > \"$wallpaper_backup\";
+                gsettings get org.gnome.desktop.background picture-uri-dark >> \"$wallpaper_backup\";
+            "
+            ;;
+        cinnamon)
+            su - "$user" -c "
+                export DISPLAY=:0;
+                export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u "$user")/bus;
+                gsettings get org.cinnamon.desktop.background picture-uri > \"$wallpaper_backup\";
+            "
+            ;;
+        xfce)
+            if command -v xfconf-query >/dev/null 2>&1; then
+                su - "$user" -c "
+                    export DISPLAY=:0;
+                    # Backup all monitor wallpapers
+                    xfconf-query -c xfce4-desktop -l | grep last-image > \"$wallpaper_backup\";
+                "
+            fi
+            ;;
+        i3|basic)
+            # For i3, check for feh or nitrogen config
+            if [ -f "$user_home/.fehbg" ]; then
+                cp "$user_home/.fehbg" "$wallpaper_backup"
+            elif [ -f "$user_home/.config/nitrogen/bg-saved.cfg" ]; then
+                cp "$user_home/.config/nitrogen/bg-saved.cfg" "$wallpaper_backup"
+            fi
+            ;;
+    esac
+    
+    chown "$user:$user" "$wallpaper_backup" 2>/dev/null
+    return 0
+}
+
+# Function to restore wallpaper settings
+restore_wallpaper() {
+    local user="$1"
+    local user_home="$2"
+    local wallpaper_backup="$user_home/.config/${THEME_NAME}-wallpaper-backup.txt"
+    
+    if [ ! -f "$wallpaper_backup" ]; then
+        echo "Arquivo de backup do wallpaper não encontrado."
+        return 1
+    fi
+    
+    echo "Restaurando configuração original do wallpaper..."
+    
+    case "$DE_TYPE" in
+        gnome)
+            # Get both regular and dark wallpaper from backup
+            picture_uri=$(head -1 "$wallpaper_backup")
+            picture_uri_dark=$(tail -1 "$wallpaper_backup")
+            
+            su - "$user" -c "
+                export DISPLAY=:0;
+                export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u "$user")/bus;
+                gsettings set org.gnome.desktop.background picture-uri $picture_uri;
+                gsettings set org.gnome.desktop.background picture-uri-dark $picture_uri_dark;
+            "
+            ;;
+        cinnamon)
+            picture_uri=$(cat "$wallpaper_backup")
+            
+            su - "$user" -c "
+                export DISPLAY=:0;
+                export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u "$user")/bus;
+                gsettings set org.cinnamon.desktop.background picture-uri $picture_uri;
+            "
+            ;;
+        xfce)
+            if command -v xfconf-query >/dev/null 2>&1; then
+                # Restore all monitor wallpapers
+                while IFS= read -r line; do
+                    property=$(echo "$line" | cut -d' ' -f1)
+                    value=$(echo "$line" | cut -d' ' -f2-)
+                    
+                    su - "$user" -c "
+                        export DISPLAY=:0;
+                        xfconf-query -c xfce4-desktop -p \"$property\" -s \"$value\";
+                    "
+                done < "$wallpaper_backup"
+            fi
+            ;;
+        i3|basic)
+            # For i3, restore feh or nitrogen config
+            if [ -f "$wallpaper_backup" ]; then
+                if grep -q "feh" "$wallpaper_backup"; then
+                    cp "$wallpaper_backup" "$user_home/.fehbg"
+                    chmod +x "$user_home/.fehbg"
+                    su - "$user" -c "
+                        export DISPLAY=:0;
+                        $user_home/.fehbg &
+                    "
+                elif grep -q "nitrogen" "$wallpaper_backup"; then
+                    mkdir -p "$user_home/.config/nitrogen"
+                    cp "$wallpaper_backup" "$user_home/.config/nitrogen/bg-saved.cfg"
+                    su - "$user" -c "
+                        export DISPLAY=:0;
+                        command -v nitrogen >/dev/null 2>&1 && nitrogen --restore &
+                    "
+                fi
+            fi
+            ;;
+    esac
+    
+    rm -f "$wallpaper_backup"
+    return 0
+}
+
 # Function executed before package installation
 pre_install() {
     echo "Preparando para instalar o tema Squared para interface GTK..."
@@ -73,6 +195,9 @@ backup_settings() {
     
     # Create backup directory if it doesn't exist
     mkdir -p "$user_home/backup_customizations"
+    
+    # Backup wallpaper settings first
+    backup_wallpaper "$user" "$user_home"
     
     # Backup settings based on desktop environment
     case "$DE_TYPE" in
@@ -186,6 +311,9 @@ apply_theme_settings() {
             ;;
     esac
     
+    # Restore wallpaper settings to ensure they're not changed
+    restore_wallpaper "$user" "$user_home"
+    
     return 0
 }
 
@@ -247,7 +375,7 @@ post_install() {
         chown -h "$user:$user" "$user_home/.config/assets"
     fi
 
-    echo "Tema Squared aplicado com sucesso!"
+    echo "Tema Squared aplicado com sucesso! O wallpaper original foi preservado."
     return 0
 }
 
@@ -304,6 +432,9 @@ restore_settings() {
             # For i3 and basic, we rely on GTK config file restoration
             ;;
     esac
+    
+    # Also restore the wallpaper
+    restore_wallpaper "$user" "$user_home"
     
     rm -f "$backup_file"
     return 0
