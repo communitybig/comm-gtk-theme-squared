@@ -1,329 +1,105 @@
-# Installation file for Arch Linux packages - Squared Theme
+#!/bin/bash
+
+# Installation file for Arch Linux packages - Squared Theme for i3wm
 
 # Global variables
 THEME_NAME="Squared"
 THEMES_DIR="/usr/share/themes/$THEME_NAME"
 
-# Function to detect the desktop environment
-detect_environment() {
-    if [ -n "$XDG_CURRENT_DESKTOP" ]; then
-        DE="$XDG_CURRENT_DESKTOP"
-    elif [ -n "$DESKTOP_SESSION" ]; then
-        DE="$DESKTOP_SESSION"
-    else
-        DE="unknown"
-    fi
-    
-    echo "Ambiente detectado: $DE"
-    
-    # Set environment type based on detection
-    case "$DE" in
-        *GNOME*|*gnome*)
-            DE_TYPE="gnome"
-            ;;
-        *CINNAMON*|*cinnamon*)
-            DE_TYPE="cinnamon"
-            ;;
-        *XFCE*|*xfce*)
-            DE_TYPE="xfce"
-            ;;
-        *i3*)
-            DE_TYPE="i3"
-            ;;
-        *)
-            echo "Aviso: Desktop environment '$DE' não reconhecido explicitamente."
-            echo "Instalando configuração básica GTK."
-            DE_TYPE="basic"
-            ;;
-    esac
-    
-    return 0
-}
-
-# Function to backup wallpaper settings
+# Function to backup wallpaper settings for i3
 backup_wallpaper() {
     local user="$1"
     local user_home="$2"
     local wallpaper_backup="$user_home/.config/${THEME_NAME}-wallpaper-backup.txt"
     
-    echo "Salvando configuração atual do wallpaper..."
+    echo "Salvando configuração atual do wallpaper para i3..."
     
-    case "$DE_TYPE" in
-        gnome)
-            su - "$user" -c "
-                export DISPLAY=:0;
-                export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u "$user")/bus;
-                gsettings get org.gnome.desktop.background picture-uri > \"$wallpaper_backup\";
-                gsettings get org.gnome.desktop.background picture-uri-dark >> \"$wallpaper_backup\";
-            "
-            ;;
-        cinnamon)
-            su - "$user" -c "
-                export DISPLAY=:0;
-                export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u "$user")/bus;
-                gsettings get org.cinnamon.desktop.background picture-uri > \"$wallpaper_backup\";
-            "
-            ;;
-        xfce)
-            if command -v xfconf-query >/dev/null 2>&1; then
-                su - "$user" -c "
-                    export DISPLAY=:0;
-                    # Backup all monitor wallpapers
-                    xfconf-query -c xfce4-desktop -l | grep last-image > \"$wallpaper_backup\";
-                "
-            fi
-            ;;
-        i3|basic)
-            # For i3, check for feh or nitrogen config
-            if [ -f "$user_home/.fehbg" ]; then
-                cp "$user_home/.fehbg" "$wallpaper_backup"
-            elif [ -f "$user_home/.config/nitrogen/bg-saved.cfg" ]; then
-                cp "$user_home/.config/nitrogen/bg-saved.cfg" "$wallpaper_backup"
-            fi
-            ;;
-    esac
-    
-    chown "$user:$user" "$wallpaper_backup" 2>/dev/null
-    return 0
-}
-
-# Function to restore wallpaper settings
-restore_wallpaper() {
-    local user="$1"
-    local user_home="$2"
-    local wallpaper_backup="$user_home/.config/${THEME_NAME}-wallpaper-backup.txt"
-    
-    if [ ! -f "$wallpaper_backup" ]; then
-        echo "Arquivo de backup do wallpaper não encontrado."
+    # For i3, check for feh, nitrogen, or other wallpaper managers
+    if [ -f "$user_home/.fehbg" ]; then
+        cp "$user_home/.fehbg" "$wallpaper_backup"
+        echo "Backup do feh wallpaper realizado."
+    elif [ -f "$user_home/.config/nitrogen/bg-saved.cfg" ]; then
+        cp "$user_home/.config/nitrogen/bg-saved.cfg" "$wallpaper_backup"
+        echo "Backup do nitrogen wallpaper realizado."
+    elif [ -f "$user_home/.config/i3/config" ]; then
+        # Try to extract wallpaper command from i3 config
+        grep -E "exec.*feh|exec.*nitrogen" "$user_home/.config/i3/config" > "$wallpaper_backup" || true
+        if [ -s "$wallpaper_backup" ]; then
+            echo "Extraído comando de wallpaper do config do i3."
+        else
+            echo "Nenhum comando de wallpaper encontrado no config do i3."
+            rm -f "$wallpaper_backup"
+        fi
+    else
+        echo "Nenhuma configuração de wallpaper encontrada para backup."
         return 1
     fi
     
-    echo "Restaurando configuração original do wallpaper..."
+    if [ -f "$wallpaper_backup" ]; then
+        chown "$user:$user" "$wallpaper_backup" 2>/dev/null
+        echo "Backup do wallpaper criado em $wallpaper_backup"
+    fi
     
-    case "$DE_TYPE" in
-        gnome)
-            # Get both regular and dark wallpaper from backup
-            picture_uri=$(head -1 "$wallpaper_backup")
-            picture_uri_dark=$(tail -1 "$wallpaper_backup")
-            
-            su - "$user" -c "
-                export DISPLAY=:0;
-                export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u "$user")/bus;
-                gsettings set org.gnome.desktop.background picture-uri $picture_uri;
-                gsettings set org.gnome.desktop.background picture-uri-dark $picture_uri_dark;
-            "
-            ;;
-        cinnamon)
-            picture_uri=$(cat "$wallpaper_backup")
-            
-            su - "$user" -c "
-                export DISPLAY=:0;
-                export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u "$user")/bus;
-                gsettings set org.cinnamon.desktop.background picture-uri $picture_uri;
-            "
-            ;;
-        xfce)
-            if command -v xfconf-query >/dev/null 2>&1; then
-                # Restore all monitor wallpapers
-                while IFS= read -r line; do
-                    property=$(echo "$line" | cut -d' ' -f1)
-                    value=$(echo "$line" | cut -d' ' -f2-)
-                    
-                    su - "$user" -c "
-                        export DISPLAY=:0;
-                        xfconf-query -c xfce4-desktop -p \"$property\" -s \"$value\";
-                    "
-                done < "$wallpaper_backup"
-            fi
-            ;;
-        i3|basic)
-            # For i3, restore feh or nitrogen config
-            if [ -f "$wallpaper_backup" ]; then
-                if grep -q "feh" "$wallpaper_backup"; then
-                    cp "$wallpaper_backup" "$user_home/.fehbg"
-                    chmod +x "$user_home/.fehbg"
-                    su - "$user" -c "
-                        export DISPLAY=:0;
-                        $user_home/.fehbg &
-                    "
-                elif grep -q "nitrogen" "$wallpaper_backup"; then
-                    mkdir -p "$user_home/.config/nitrogen"
-                    cp "$wallpaper_backup" "$user_home/.config/nitrogen/bg-saved.cfg"
-                    su - "$user" -c "
-                        export DISPLAY=:0;
-                        command -v nitrogen >/dev/null 2>&1 && nitrogen --restore &
-                    "
-                fi
-            fi
-            ;;
-    esac
-    
-    rm -f "$wallpaper_backup"
     return 0
 }
 
-# Function executed before package installation
-pre_install() {
-    echo "Preparando para instalar o tema Squared para interface GTK..."
-    
-    # Detect environment
-    detect_environment
-    
-    # Check for required commands
-    if [ "$DE_TYPE" = "gnome" ] || [ "$DE_TYPE" = "cinnamon" ]; then
-        if ! command -v gsettings >/dev/null 2>&1; then
-            echo "Erro: comando gsettings não encontrado. Por favor, instale o pacote relacionado."
-            exit 1
-        fi
-    fi
-    
-    if [ "$DE_TYPE" = "xfce" ]; then
-        if ! command -v xfconf-query >/dev/null 2>&1; then
-            echo "Aviso: comando xfconf-query não encontrado. A configuração automática do XFCE pode falhar."
-        fi
-    fi
-}
-
-# Function to backup desktop environment settings
-backup_settings() {
+# Function to backup current GTK settings
+backup_gtk_settings() {
     local user="$1"
     local user_home="$2"
-    local backup_file="$user_home/.config/${THEME_NAME}-settings-backup.txt"
     local timestamp=$(date +%Y%m%d%H%M%S)
+    local backup_dir="$user_home/backup_customizations"
     
-    echo "Criando backup das configurações atuais em $backup_file..."
+    echo "Criando backup das configurações GTK para i3..."
     
     # Create backup directory if it doesn't exist
-    mkdir -p "$user_home/backup_customizations"
-    
-    # Backup wallpaper settings first
-    backup_wallpaper "$user" "$user_home"
-    
-    # Backup settings based on desktop environment
-    case "$DE_TYPE" in
-        gnome)
-            su - "$user" -c "
-                export DISPLAY=:0;
-                export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u "$user")/bus;
-                {
-                    echo org.gnome.shell.extensions.user-theme name \$(gsettings get org.gnome.shell.extensions.user-theme name);
-                    echo org.gnome.desktop.interface gtk-theme \$(gsettings get org.gnome.desktop.interface gtk-theme);
-                    echo org.gnome.desktop.wm.preferences theme \$(gsettings get org.gnome.desktop.wm.preferences theme);
-                } > \"$backup_file\"
-            "
-            ;;
-        cinnamon)
-            su - "$user" -c "
-                export DISPLAY=:0;
-                export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u "$user")/bus;
-                {
-                    echo org.cinnamon.theme name \$(gsettings get org.cinnamon.theme name);
-                    echo org.cinnamon.desktop.interface gtk-theme \$(gsettings get org.cinnamon.desktop.interface gtk-theme);
-                    echo org.cinnamon.desktop.wm.preferences theme \$(gsettings get org.cinnamon.desktop.wm.preferences theme);
-                } > \"$backup_file\"
-            "
-            ;;
-        xfce)
-            if command -v xfconf-query >/dev/null 2>&1; then
-                su - "$user" -c "
-                    export DISPLAY=:0;
-                    {
-                        echo xfce_gtk_theme \$(xfconf-query -c xsettings -p /Net/ThemeName);
-                        echo xfce_wm_theme \$(xfconf-query -c xfwm4 -p /general/theme);
-                    } > \"$backup_file\"
-                "
-            else
-                echo "Aviso: xfconf-query não disponível, o backup das configurações do XFCE não foi realizado."
-            fi
-            ;;
-        i3)
-            # i3 typically uses GTK settings from other files
-            echo "Realizando backup de configurações básicas do GTK para i3..."
-            ;;
-        basic)
-            echo "Realizando backup de configurações básicas do GTK..."
-            ;;
-    esac
+    mkdir -p "$backup_dir"
+    chown "$user:$user" "$backup_dir"
     
     # Backup GTK configuration files
     GTK4_DIR="$user_home/.config/gtk-4.0"
     GTK3_DIR="$user_home/.config/gtk-3.0"
     GTK2_FILE="$user_home/.gtkrc-2.0"
+    GTK2_DIR="$user_home/.gtk-2.0"
     
-    for dir in "$GTK4_DIR" "$GTK3_DIR"; do
+    for dir in "$GTK4_DIR" "$GTK3_DIR" "$GTK2_DIR"; do
         if [ -d "$dir" ]; then
-            tar -czf "$user_home/backup_customizations/$(basename "$dir")-$timestamp.tar.gz" -C "$(dirname "$dir")" "$(basename "$dir")"
+            tar -czf "$backup_dir/$(basename "$dir")-$timestamp.tar.gz" -C "$(dirname "$dir")" "$(basename "$dir")"
             echo "Backup criado: $(basename "$dir")-$timestamp.tar.gz"
         fi
     done
     
     if [ -f "$GTK2_FILE" ]; then
-        cp "$GTK2_FILE" "$user_home/backup_customizations/gtkrc-2.0-$timestamp.bak"
+        cp "$GTK2_FILE" "$backup_dir/gtkrc-2.0-$timestamp.bak"
         echo "Backup criado: gtkrc-2.0-$timestamp.bak"
     fi
     
+    # Backup i3-specific theme settings if any
+    if [ -f "$user_home/.config/gtk-3.0/settings.ini" ]; then
+        cp "$user_home/.config/gtk-3.0/settings.ini" "$backup_dir/gtk3-settings-$timestamp.bak"
+        echo "Backup das configurações GTK3 criado."
+    fi
+    
+    if [ -f "$user_home/.config/gtk-4.0/settings.ini" ]; then
+        cp "$user_home/.config/gtk-4.0/settings.ini" "$backup_dir/gtk4-settings-$timestamp.bak"
+        echo "Backup das configurações GTK4 criado."
+    fi
+    
     # Set ownership for backup files
-    chown -R "$user:$user" "$user_home/backup_customizations"
+    chown -R "$user:$user" "$backup_dir"
     
     return 0
 }
 
-# Function to apply theme settings
-apply_theme_settings() {
-    local user="$1"
-    local user_home="$2"
-    
-    echo "Aplicando configurações do tema Squared para $user..."
-    
-    case "$DE_TYPE" in
-        gnome)
-            su - "$user" -c "
-                export DISPLAY=:0;
-                export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u "$user")/bus;
-                gsettings set org.gnome.shell.extensions.user-theme name '$THEME_NAME';
-                gsettings set org.gnome.desktop.interface gtk-theme '$THEME_NAME';
-                gsettings set org.gnome.desktop.wm.preferences theme '$THEME_NAME';
-            "
-            ;;
-        cinnamon)
-            su - "$user" -c "
-                export DISPLAY=:0;
-                export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u "$user")/bus;
-                gsettings set org.cinnamon.theme name '$THEME_NAME';
-                gsettings set org.cinnamon.desktop.interface gtk-theme '$THEME_NAME';
-                gsettings set org.cinnamon.desktop.wm.preferences theme '$THEME_NAME';
-            "
-            ;;
-        xfce)
-            if command -v xfconf-query >/dev/null 2>&1; then
-                su - "$user" -c "
-                    export DISPLAY=:0;
-                    xfconf-query -c xsettings -p /Net/ThemeName -s '$THEME_NAME';
-                    xfconf-query -c xfwm4 -p /general/theme -s '$THEME_NAME';
-                "
-            else
-                echo "Aviso: xfconf-query não disponível, aplicação automática de tema no XFCE não realizada."
-            fi
-            ;;
-        i3|basic)
-            echo "Aplicando configurações básicas de GTK para $DE_TYPE..."
-            # For i3 and basic, we rely on GTK config files only
-            ;;
-    esac
-    
-    # Restore wallpaper settings to ensure they're not changed
-    restore_wallpaper "$user" "$user_home"
-    
-    return 0
+# Function executed before package installation
+pre_install() {
+    echo "Preparando para instalar o tema Squared para i3wm..."
 }
 
 # Function executed after package installation
 post_install() {
-    echo "Aplicando tema Squared para GTK e configurando o ambiente..."
+    echo "Aplicando tema Squared para GTK no i3wm..."
 
-    # Detect environment
-    detect_environment
-    
     # Get user information
     user=$(logname)
     user_home=$(getent passwd "$user" | cut -d: -f6)
@@ -333,8 +109,11 @@ post_install() {
         return 1
     fi
 
-    # Backup current settings
-    backup_settings "$user" "$user_home"
+    # Backup wallpaper settings first
+    backup_wallpaper "$user" "$user_home"
+    
+    # Backup current GTK settings
+    backup_gtk_settings "$user" "$user_home"
 
     # Directories
     GTK4_DIR="$user_home/.config/gtk-4.0"
@@ -365,79 +144,72 @@ post_install() {
     chown -R "$user:$user" "$GTK4_DIR"
     chown -R "$user:$user" "$GTK3_DIR"
 
-    # Apply theme settings based on desktop environment
-    apply_theme_settings "$user" "$user_home"
+    # Update GTK settings.ini files to use the theme
+    if [ ! -f "$GTK3_DIR/settings.ini" ] || ! grep -q "^gtk-theme-name" "$GTK3_DIR/settings.ini"; then
+        # Create or update GTK3 settings.ini
+        mkdir -p "$GTK3_DIR"
+        echo "[Settings]" > "$GTK3_DIR/settings.ini"
+        echo "gtk-theme-name=$THEME_NAME" >> "$GTK3_DIR/settings.ini"
+        echo "gtk-application-prefer-dark-theme=1" >> "$GTK3_DIR/settings.ini"
+        chown -R "$user:$user" "$GTK3_DIR"
+    else
+        # Update existing settings
+        sed -i "s/^gtk-theme-name=.*/gtk-theme-name=$THEME_NAME/" "$GTK3_DIR/settings.ini"
+    fi
+
+    if [ ! -f "$GTK4_DIR/settings.ini" ] || ! grep -q "^gtk-theme-name" "$GTK4_DIR/settings.ini"; then
+        # Create or update GTK4 settings.ini
+        mkdir -p "$GTK4_DIR"
+        echo "[Settings]" > "$GTK4_DIR/settings.ini"
+        echo "gtk-theme-name=$THEME_NAME" >> "$GTK4_DIR/settings.ini"
+        echo "gtk-application-prefer-dark-theme=1" >> "$GTK4_DIR/settings.ini"
+        chown -R "$user:$user" "$GTK4_DIR"
+    else
+        # Update existing settings
+        sed -i "s/^gtk-theme-name=.*/gtk-theme-name=$THEME_NAME/" "$GTK4_DIR/settings.ini"
+    fi
     
-    # Create symbolic link in user's .config directory pointing to assets
+    # Create symbolic link in user's .config directory pointing to assets if needed
     if [ -d "$THEMES_DIR/assets" ]; then
         echo "Criando link simbólico para assets em $user_home/.config..."
         ln -sf "$THEMES_DIR/assets" "$user_home/.config/assets"
         chown -h "$user:$user" "$user_home/.config/assets"
     fi
 
-    echo "Tema Squared aplicado com sucesso! O wallpaper original foi preservado."
+    # Restore wallpaper - this will ensure it's preserved
+    local wallpaper_backup="$user_home/.config/${THEME_NAME}-wallpaper-backup.txt"
+    if [ -f "$wallpaper_backup" ]; then
+        if grep -q "feh" "$wallpaper_backup"; then
+            # It's a feh backup
+            cp "$wallpaper_backup" "$user_home/.fehbg"
+            chmod +x "$user_home/.fehbg"
+            echo "Restaurando wallpaper do feh..."
+            su - "$user" -c "export DISPLAY=:0; $user_home/.fehbg &" || true
+        elif grep -q "nitrogen" "$wallpaper_backup"; then
+            # It's a nitrogen backup
+            mkdir -p "$user_home/.config/nitrogen"
+            cp "$wallpaper_backup" "$user_home/.config/nitrogen/bg-saved.cfg"
+            echo "Restaurando wallpaper do nitrogen..."
+            su - "$user" -c "export DISPLAY=:0; command -v nitrogen >/dev/null 2>&1 && nitrogen --restore &" || true
+        elif grep -q "exec" "$wallpaper_backup"; then
+            # It's an i3 command
+            echo "Encontrado comando de wallpaper no config do i3. Mantenha-o em seu config."
+        else
+            echo "Formato de backup de wallpaper não reconhecido."
+        fi
+        # Keep the backup for uninstall
+        chown "$user:$user" "$wallpaper_backup" 2>/dev/null
+    else
+        echo "Nenhum backup de wallpaper encontrado. O wallpaper atual será mantido."
+    fi
+
+    echo "Tema Squared aplicado com sucesso para i3wm! O wallpaper original foi preservado."
     return 0
 }
 
 # Function executed before package removal
 pre_remove() {
-    echo "Preparando para remover o tema Squared..."
-    
-    # Detect environment
-    detect_environment
-}
-
-# Function to restore desktop environment settings
-restore_settings() {
-    local user="$1"
-    local user_home="$2"
-    local backup_file="$user_home/.config/${THEME_NAME}-settings-backup.txt"
-    
-    if [ ! -f "$backup_file" ]; then
-        echo "Arquivo de backup de configurações não encontrado: $backup_file"
-        return 1
-    fi
-    
-    echo "Restaurando configurações de $backup_file..."
-    
-    case "$DE_TYPE" in
-        gnome|cinnamon)
-            while IFS= read -r line; do
-                schema=$(echo "$line" | awk '{print $1}')
-                key=$(echo "$line" | awk '{print $2}')
-                value=$(echo "$line" | cut -d' ' -f3-)
-
-                su - "$user" -c "
-                    export DISPLAY=:0;
-                    export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u "$user")/bus;
-                    gsettings set $schema $key $value
-                "
-            done < "$backup_file"
-            ;;
-        xfce)
-            if command -v xfconf-query >/dev/null 2>&1; then
-                # Extract and set xfce theme settings
-                gtk_theme=$(grep xfce_gtk_theme "$backup_file" | cut -d' ' -f2-)
-                wm_theme=$(grep xfce_wm_theme "$backup_file" | cut -d' ' -f2-)
-                
-                su - "$user" -c "
-                    export DISPLAY=:0;
-                    xfconf-query -c xsettings -p /Net/ThemeName -s \"$gtk_theme\";
-                    xfconf-query -c xfwm4 -p /general/theme -s \"$wm_theme\";
-                "
-            fi
-            ;;
-        i3|basic)
-            echo "Restaurando configurações básicas do GTK..."
-            # For i3 and basic, we rely on GTK config file restoration
-            ;;
-    esac
-    
-    # Also restore the wallpaper
-    restore_wallpaper "$user" "$user_home"
-    
-    rm -f "$backup_file"
-    return 0
+    echo "Preparando para remover o tema Squared do i3wm..."
 }
 
 # Function executed after package removal
@@ -455,57 +227,86 @@ post_remove() {
         return 1
     fi
 
-    # Restore settings
-    restore_settings "$user" "$user_home"
-
     # GTK directories and files
     GTK4_DIR="$user_home/.config/gtk-4.0"
     GTK3_DIR="$user_home/.config/gtk-3.0"
     GTK2_FILE="$user_home/.gtkrc-2.0"
     
-    # Remove current GTK directories
-    echo "Removendo diretórios GTK atuais..."
-    for dir in "$GTK4_DIR" "$GTK3_DIR"; do
-        if [ -d "$dir" ]; then
-            rm -rf "$dir"
-            echo "Removido: $dir"
-        fi
-    done
-    
-    # Remove or restore GTK2 file
-    if [ -f "$GTK2_FILE" ]; then
-        # Check if it's our theme
-        if grep -q "$THEME_NAME" "$GTK2_FILE"; then
-            rm -f "$GTK2_FILE"
-            echo "Removido: $GTK2_FILE"
-        fi
-    fi
-
     # Restore backups
     echo "Restaurando diretórios GTK a partir de backups..."
     if [ -d "$backup_dir" ]; then
-        # Find the latest GTK4 backup
+        # Find the latest backups
         latest_gtk4=$(ls -t "$backup_dir"/gtk-4.0-*.tar.gz 2>/dev/null | head -1)
+        latest_gtk3=$(ls -t "$backup_dir"/gtk-3.0-*.tar.gz 2>/dev/null | head -1)
+        latest_gtk2=$(ls -t "$backup_dir"/gtkrc-2.0-*.bak 2>/dev/null | head -1)
+        latest_gtk3_settings=$(ls -t "$backup_dir"/gtk3-settings-*.bak 2>/dev/null | head -1)
+        latest_gtk4_settings=$(ls -t "$backup_dir"/gtk4-settings-*.bak 2>/dev/null | head -1)
+        
+        # Remove current directories to avoid conflicts
+        for dir in "$GTK4_DIR" "$GTK3_DIR"; do
+            if [ -d "$dir" ]; then
+                rm -rf "$dir"
+                echo "Removido diretório atual: $dir"
+            fi
+        done
+        
+        # Restore GTK directories
         if [ -n "$latest_gtk4" ]; then
             echo "Restaurando $latest_gtk4..."
+            mkdir -p "$user_home/.config"
             tar -xzf "$latest_gtk4" -C "$user_home/.config/"
             chown -R "$user:$user" "$GTK4_DIR"
         fi
         
-        # Find the latest GTK3 backup
-        latest_gtk3=$(ls -t "$backup_dir"/gtk-3.0-*.tar.gz 2>/dev/null | head -1)
         if [ -n "$latest_gtk3" ]; then
             echo "Restaurando $latest_gtk3..."
+            mkdir -p "$user_home/.config"
             tar -xzf "$latest_gtk3" -C "$user_home/.config/"
             chown -R "$user:$user" "$GTK3_DIR"
         fi
         
-        # Find the latest GTK2 backup
-        latest_gtk2=$(ls -t "$backup_dir"/gtkrc-2.0-*.bak 2>/dev/null | head -1)
+        # If no complete backups, but we have settings backups
+        if [ ! -n "$latest_gtk3" ] && [ -n "$latest_gtk3_settings" ]; then
+            mkdir -p "$GTK3_DIR"
+            cp "$latest_gtk3_settings" "$GTK3_DIR/settings.ini"
+            chown -R "$user:$user" "$GTK3_DIR"
+        fi
+        
+        if [ ! -n "$latest_gtk4" ] && [ -n "$latest_gtk4_settings" ]; then
+            mkdir -p "$GTK4_DIR"
+            cp "$latest_gtk4_settings" "$GTK4_DIR/settings.ini"
+            chown -R "$user:$user" "$GTK4_DIR"
+        fi
+        
+        # Restore GTK2 file
         if [ -n "$latest_gtk2" ]; then
             echo "Restaurando $latest_gtk2..."
             cp "$latest_gtk2" "$GTK2_FILE"
             chown "$user:$user" "$GTK2_FILE"
+        elif [ -f "$GTK2_FILE" ] && grep -q "$THEME_NAME" "$GTK2_FILE"; then
+            # Remove our GTK2 file if it's our theme
+            rm -f "$GTK2_FILE"
+            echo "Removido: $GTK2_FILE"
+        fi
+        
+        # Restore wallpaper
+        local wallpaper_backup="$user_home/.config/${THEME_NAME}-wallpaper-backup.txt"
+        if [ -f "$wallpaper_backup" ]; then
+            if grep -q "feh" "$wallpaper_backup"; then
+                # It's a feh backup
+                cp "$wallpaper_backup" "$user_home/.fehbg"
+                chmod +x "$user_home/.fehbg"
+                echo "Restaurando wallpaper do feh..."
+                su - "$user" -c "export DISPLAY=:0; $user_home/.fehbg &" || true
+            elif grep -q "nitrogen" "$wallpaper_backup"; then
+                # It's a nitrogen backup
+                mkdir -p "$user_home/.config/nitrogen"
+                cp "$wallpaper_backup" "$user_home/.config/nitrogen/bg-saved.cfg"
+                echo "Restaurando wallpaper do nitrogen..."
+                su - "$user" -c "export DISPLAY=:0; command -v nitrogen >/dev/null 2>&1 && nitrogen --restore &" || true
+            fi
+            # Remove the backup file
+            rm -f "$wallpaper_backup"
         fi
     else
         echo "Diretório de backup $backup_dir não encontrado. Pulando restauração."
