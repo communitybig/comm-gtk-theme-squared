@@ -1,8 +1,8 @@
 # Maintainer: Leonardo Berbert <leo4berbert@gmail.com>
 # Contributor: Narayan Silva <narayan.song@gmail.com>
 
-pkgname=comm-gnome-theme-andromeda
-pkgdesc="andromeda GNOME theme"
+pkgname=comm-gtk-theme-squared
+pkgdesc="Squared GTK Theme"
 pkgver=$(date +%y.%m.%d)
 pkgrel=$(date +%H%M)
 arch=('any')
