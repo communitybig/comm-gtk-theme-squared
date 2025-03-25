@@ -354,10 +354,8 @@ post_install() {
         fi
     done
     
-    # Copy theme files
-    echo "Copiando arquivos do tema Squared..."
-    cp -rp "$THEMES_DIR/gtk-4.0/"* "$GTK4_DIR/" 2>/dev/null || echo "Aviso: Arquivos GTK4 não encontrados no tema."
-    cp -rp "$THEMES_DIR/gtk-3.0/"* "$GTK3_DIR/" 2>/dev/null || echo "Aviso: Arquivos GTK3 não encontrados no tema."
+    # REMOVI: Não copiar os arquivos completos do tema para os diretórios do usuário
+    # em vez disso, apenas definir o nome do tema nos arquivos settings.ini
     
     # Setup GTK2 if available
     if [ -f "$THEMES_DIR/gtk-2.0/gtkrc" ]; then
@@ -366,33 +364,91 @@ post_install() {
         chown "$user:$user" "$GTK2_FILE"
     fi
 
-    # Set correct ownership
-    chown -R "$user:$user" "$GTK4_DIR"
-    chown -R "$user:$user" "$GTK3_DIR"
-
     # Update GTK settings.ini files to use the theme
-    if [ ! -f "$GTK3_DIR/settings.ini" ] || ! grep -q "^gtk-theme-name" "$GTK3_DIR/settings.ini"; then
-        # Create or update GTK3 settings.ini
+    if [ ! -f "$GTK3_DIR/settings.ini" ]; then
+        # Create new settings.ini
         mkdir -p "$GTK3_DIR"
         echo "[Settings]" > "$GTK3_DIR/settings.ini"
         echo "gtk-theme-name=$THEME_NAME" >> "$GTK3_DIR/settings.ini"
         echo "gtk-application-prefer-dark-theme=1" >> "$GTK3_DIR/settings.ini"
-        chown -R "$user:$user" "$GTK3_DIR"
     else
-        # Update existing settings
-        sed -i "s/^gtk-theme-name=.*/gtk-theme-name=$THEME_NAME/" "$GTK3_DIR/settings.ini"
+        # Update existing settings without overwriting the whole file
+        if grep -q "^gtk-theme-name" "$GTK3_DIR/settings.ini"; then
+            sed -i "s/^gtk-theme-name=.*/gtk-theme-name=$THEME_NAME/" "$GTK3_DIR/settings.ini"
+        else
+            echo "gtk-theme-name=$THEME_NAME" >> "$GTK3_DIR/settings.ini"
+        fi
+        
+        if ! grep -q "^gtk-application-prefer-dark-theme" "$GTK3_DIR/settings.ini"; then
+            echo "gtk-application-prefer-dark-theme=1" >> "$GTK3_DIR/settings.ini"
+        fi
     fi
+    chown -R "$user:$user" "$GTK3_DIR"
 
-    if [ ! -f "$GTK4_DIR/settings.ini" ] || ! grep -q "^gtk-theme-name" "$GTK4_DIR/settings.ini"; then
-        # Create or update GTK4 settings.ini
+    if [ ! -f "$GTK4_DIR/settings.ini" ]; then
+        # Create new settings.ini
         mkdir -p "$GTK4_DIR"
         echo "[Settings]" > "$GTK4_DIR/settings.ini"
         echo "gtk-theme-name=$THEME_NAME" >> "$GTK4_DIR/settings.ini"
         echo "gtk-application-prefer-dark-theme=1" >> "$GTK4_DIR/settings.ini"
-        chown -R "$user:$user" "$GTK4_DIR"
     else
-        # Update existing settings
-        sed -i "s/^gtk-theme-name=.*/gtk-theme-name=$THEME_NAME/" "$GTK4_DIR/settings.ini"
+        # Update existing settings without overwriting the whole file
+        if grep -q "^gtk-theme-name" "$GTK4_DIR/settings.ini"; then
+            sed -i "s/^gtk-theme-name=.*/gtk-theme-name=$THEME_NAME/" "$GTK4_DIR/settings.ini"
+        else
+            echo "gtk-theme-name=$THEME_NAME" >> "$GTK4_DIR/settings.ini"
+        fi
+        
+        if ! grep -q "^gtk-application-prefer-dark-theme" "$GTK4_DIR/settings.ini"; then
+            echo "gtk-application-prefer-dark-theme=1" >> "$GTK4_DIR/settings.ini"
+        fi
+    fi
+    chown -R "$user:$user" "$GTK4_DIR"
+    
+    # Configuração específica para Thunar/XFCE (caso esteja usando)
+    echo "Configurando Thunar para usar o tema $THEME_NAME..."
+    xfce_dir="$user_home/.config/xfce4/xfconf/xfce-perchannel-xml"
+    
+    # Verificar se o diretório XFCE existe
+    if [ -d "$user_home/.config/xfce4" ]; then
+        mkdir -p "$xfce_dir"
+        
+        # Atualizar/criar configuração do XFCE
+        xsettings_file="$xfce_dir/xsettings.xml"
+        if [ -f "$xsettings_file" ]; then
+            # Backup da configuração existente
+            cp "$xsettings_file" "$backup_dir/xsettings-$(date +%Y%m%d%H%M%S).bak"
+            
+            # Atualizar tema no arquivo de configuração
+            if grep -q "ThemeName" "$xsettings_file"; then
+                sed -i "s|<property name=\"ThemeName\".*|<property name=\"ThemeName\" type=\"string\" value=\"$THEME_NAME\"/>|" "$xsettings_file"
+            else
+                sed -i "s|</channel>|  <property name=\"ThemeName\" type=\"string\" value=\"$THEME_NAME\"/>\n</channel>|" "$xsettings_file"
+            fi
+        else
+            # Criar novo arquivo de configuração
+            cat > "$xsettings_file" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+
+<channel name="xsettings" version="1.0">
+  <property name="Net" type="empty">
+    <property name="ThemeName" type="string" value="$THEME_NAME"/>
+    <property name="IconThemeName" type="string" value="Papirus-Dark"/>
+  </property>
+</channel>
+EOF
+        fi
+        
+        # Definir permissões corretas
+        chown -R "$user:$user" "$user_home/.config/xfce4"
+        
+        # Tentar reiniciar o Thunar se estiver em execução
+        if pgrep thunar > /dev/null; then
+            echo "Reiniciando o Thunar para aplicar o tema..."
+            pkill -u "$user" thunar
+            sleep 1
+            su - "$user" -c "export DISPLAY=:0; thunar --daemon &>/dev/null &" || true
+        fi
     fi
     
     # Create symbolic link in user's .config directory pointing to assets if needed
@@ -470,6 +526,7 @@ post_remove() {
         latest_gtk2=$(ls -t "$backup_dir"/gtkrc-2.0-*.bak 2>/dev/null | head -1)
         latest_gtk3_settings=$(ls -t "$backup_dir"/gtk3-settings-*.bak 2>/dev/null | head -1)
         latest_gtk4_settings=$(ls -t "$backup_dir"/gtk4-settings-*.bak 2>/dev/null | head -1)
+        latest_xsettings=$(ls -t "$backup_dir"/xsettings-*.bak 2>/dev/null | head -1)
         
         # Remove current directories to avoid conflicts
         for dir in "$GTK4_DIR" "$GTK3_DIR"; do
@@ -516,6 +573,22 @@ post_remove() {
             # Remove our GTK2 file if it's our theme
             rm -f "$GTK2_FILE"
             echo "Removido: $GTK2_FILE"
+        fi
+        
+        # Restore XFCE settings if available
+        xfce_settings="$user_home/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml"
+        if [ -n "$latest_xsettings" ] && [ -f "$xfce_settings" ]; then
+            echo "Restaurando configurações do XFCE..."
+            cp "$latest_xsettings" "$xfce_settings"
+            chown "$user:$user" "$xfce_settings"
+            
+            # Tentar reiniciar o Thunar se estiver em execução
+            if pgrep thunar > /dev/null; then
+                echo "Reiniciando o Thunar para aplicar as configurações restauradas..."
+                pkill -u "$user" thunar
+                sleep 1
+                su - "$user" -c "export DISPLAY=:0; thunar --daemon &>/dev/null &" || true
+            fi
         fi
         
         # Restore wallpaper
