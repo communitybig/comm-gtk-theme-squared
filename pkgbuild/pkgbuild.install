@@ -49,7 +49,7 @@ apply_theme_to_rofi() {
     # Estas cores precisam ser ajustadas de acordo com as cores reais do tema Squared
     local bg_color="#151a1f"
     local text_color="#f0f0f0"
-    local accent_color="#8db8b0"  # Cor roxo do tema Squared
+    local accent_color="#8db8b0"  # Cor principal do tema Squared
     local border_color="#8db8b0"
     
     # Create Rofi theme file
@@ -337,6 +337,9 @@ post_install() {
     
     # Backup current GTK settings
     backup_gtk_settings "$user" "$user_home"
+    
+    # Backup Rofi configuration
+    backup_rofi_config "$user" "$user_home"
 
     # Directories
     GTK4_DIR="$user_home/.config/gtk-4.0"
@@ -425,8 +428,11 @@ post_install() {
     else
         echo "Nenhum backup de wallpaper encontrado. O wallpaper atual será mantido."
     fi
+    
+    # Apply theme to Rofi
+    apply_theme_to_rofi "$user" "$user_home"
 
-    echo "Tema Squared aplicado com sucesso para i3wm! O wallpaper original foi preservado."
+    echo "Tema Squared aplicado com sucesso para i3wm e Rofi! O wallpaper original foi preservado."
     return 0
 }
 
@@ -531,6 +537,9 @@ post_remove() {
             # Remove the backup file
             rm -f "$wallpaper_backup"
         fi
+        
+        # Restore Rofi configuration
+        restore_rofi_config "$user" "$user_home"
     else
         echo "Diretório de backup $backup_dir não encontrado. Pulando restauração."
     fi
